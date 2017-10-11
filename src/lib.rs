@@ -82,16 +82,16 @@ pub enum Status {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Job {
-    uuid: String,
+    id: String,
     status: Status,
     args: Vec<String>,
     result: Option<String>,
 }
 
 impl Job {
-    fn new(args: Vec<String>) -> Job {
+    fn new(id: Option<String>, args: Vec<String>) -> Job {
         Job {
-            uuid: Uuid::new_v4().to_string(),
+            id: id.unwrap_or(Uuid::new_v4().to_string()),
             status: Status::QUEUED,
             args: args,
             result: None,
@@ -125,7 +125,7 @@ impl Queue {
         let client = Client::open(self.url.as_str())?;
         let conn = client.get_connection()?;
 
-        let _: () = conn.del(format!("{}:uuids", self.name))?;
+        let _: () = conn.del(format!("{}:ids", self.name))?;
 
         Ok(())
     }
@@ -138,30 +138,30 @@ impl Queue {
     /// removed
     ///
     /// Returns unique job identifier
-    pub fn enqueue(&self, args: Vec<String>, expire: usize) -> Result<String, Box<Error>> {
+    pub fn enqueue(&self, id: Option<String>, args: Vec<String>, expire: usize) -> Result<String, Box<Error>> {
         let client = Client::open(self.url.as_str())?;
         let conn = client.get_connection()?;
 
-        let job = Job::new(args);
+        let job = Job::new(id, args);
 
-        let _: () = conn.set_ex(format!("{}:{}", self.name, job.uuid),
+        let _: () = conn.set_ex(format!("{}:{}", self.name, job.id),
                                 serde_json::to_string(&job)?,
                                 expire)?;
-        let _: () = conn.rpush(format!("{}:uuids", self.name), &job.uuid)?;
+        let _: () = conn.rpush(format!("{}:ids", self.name), &job.id)?;
 
-        Ok(job.uuid)
+        Ok(job.id)
     }
 
     /// Get job status
     ///
-    /// `uuid` - unique job identifier
+    /// `id` - unique job identifier
     ///
     /// Returns job status
-    pub fn status(&self, uuid: &str) -> Result<Status, Box<Error>> {
+    pub fn status(&self, id: &str) -> Result<Status, Box<Error>> {
         let client = redis::Client::open(self.url.as_str())?;
         let conn = client.get_connection()?;
 
-        let json: String = conn.get(format!("{}:{}", self.name, uuid))?;
+        let json: String = conn.get(format!("{}:{}", self.name, id))?;
         let job: Job = serde_json::from_str(&json)?;
 
         Ok(job.status)
@@ -205,18 +205,18 @@ impl Queue {
         let conn = client.get_connection()?;
 
         let afun = Arc::new(fun);
-        let uuids_key = format!("{}:uuids", self.name);
+        let ids_key = format!("{}:ids", self.name);
         loop {
-            let uuids: Vec<String> = conn.blpop(&uuids_key, wait)?;
-            if uuids.len() < 2 {
+            let ids: Vec<String> = conn.blpop(&ids_key, wait)?;
+            if ids.len() < 2 {
                 if !infinite {
                     break;
                 }
                 continue;
             }
 
-            let uuid = &uuids[1].to_string();
-            let key = format!("{}:{}", self.name, uuid);
+            let id = &ids[1].to_string();
+            let key = format!("{}:{}", self.name, id);
             let json: String = match conn.get(&key) {
                 Ok(o) => o,
                 Err(_) => {
@@ -234,7 +234,7 @@ impl Queue {
 
             let (tx, rx) = channel();
             let cafun = afun.clone();
-            let cuuid = uuid.clone();
+            let cid = id.clone();
             let cargs = job.args.clone();
             thread::spawn(move || {
                 let r = match cafun(cid, cargs) {
@@ -278,14 +278,14 @@ impl Queue {
 
     /// Get job result
     ///
-    /// `uuid` - unique job identifier
+    /// `id` - unique job identifier
     ///
     /// Returns job result
-    pub fn result(&self, uuid: &str) -> Result<Option<String>, Box<Error>> {
+    pub fn result(&self, id: &str) -> Result<Option<String>, Box<Error>> {
         let client = redis::Client::open(self.url.as_str())?;
         let conn = client.get_connection()?;
 
-        let json: String = conn.get(format!("{}:{}", self.name, uuid))?;
+        let json: String = conn.get(format!("{}:{}", self.name, id))?;
         let job: Job = serde_json::from_str(&json)?;
 
         Ok(job.result)
