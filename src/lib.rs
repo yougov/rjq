@@ -49,21 +49,48 @@
 #![deny(missing_docs)]
 
 #[macro_use]
+extern crate error_chain;
+#[macro_use]
 extern crate serde_derive;
 extern crate serde;
 extern crate serde_json;
 extern crate redis;
 extern crate uuid;
 
-use std::error::Error;
 use std::thread;
 use std::sync::mpsc::channel;
 use std::time::Duration;
 use std::thread::sleep;
 use std::marker::{Send, Sync};
 use std::sync::Arc;
+use error_chain::ChainedError;
 use redis::{Commands, Client};
 use uuid::Uuid;
+
+
+pub mod errors {
+    #![allow(missing_docs)]
+    use redis;
+    use serde_json;
+    error_chain! {
+        errors {
+            JobFailed {
+                message: String,
+                backtrace: String,
+            }
+            JobQueued
+            JobLost
+            JobRunning
+        }
+
+        foreign_links {
+            Redis(redis::RedisError);
+            Serde(serde_json::Error);
+        }
+    }
+}
+
+use errors::{ErrorKind, Result};
 
 /// Job status
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -77,7 +104,12 @@ pub enum Status {
     /// Job finished successfully
     FINISHED(Option<String>),
     /// Job failed
-    FAILED(String),
+    FAILED {
+        /// Error message
+        message: String,
+        /// Error backtrace
+        backtrace: String,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -85,7 +117,6 @@ struct Job {
     id: String,
     status: Status,
     args: Vec<String>,
-    result: Option<String>,
 }
 
 impl Job {
@@ -94,7 +125,6 @@ impl Job {
             id: id.unwrap_or(Uuid::new_v4().to_string()),
             status: Status::QUEUED,
             args: args,
-            result: None,
         }
     }
 }
@@ -121,7 +151,7 @@ impl Queue {
     }
 
     /// Delete enqueued jobs
-    pub fn drop(&self) -> Result<(), Box<Error>> {
+    pub fn drop(&self) -> Result<()> {
         let client = Client::open(self.url.as_str())?;
         let conn = client.get_connection()?;
 
@@ -138,7 +168,7 @@ impl Queue {
     /// removed
     ///
     /// Returns unique job identifier
-    pub fn enqueue(&self, id: Option<String>, args: Vec<String>, expire: usize) -> Result<String, Box<Error>> {
+    pub fn enqueue(&self, id: Option<String>, args: Vec<String>, expire: usize) -> Result<String> {
         let client = Client::open(self.url.as_str())?;
         let conn = client.get_connection()?;
 
@@ -157,7 +187,7 @@ impl Queue {
     /// `id` - unique job identifier
     ///
     /// Returns job status
-    pub fn status(&self, id: &str) -> Result<Status, Box<Error>> {
+    pub fn status(&self, id: &str) -> Result<Status> {
         let client = redis::Client::open(self.url.as_str())?;
         let conn = client.get_connection()?;
 
@@ -184,7 +214,7 @@ impl Queue {
     /// `fall` - panic if job was lost, true by default
     ///
     /// `infinite` - process jobs infinitely, true by default
-    pub fn work<F: Fn(String, Vec<String>) -> Result<Option<String>, Box<Error>> + Send + Sync + 'static>
+    pub fn work<F: Fn(String, Vec<String>) -> Result<Option<String>> + Send + Sync + 'static>
         (&self,
          fun: F,
          wait: Option<usize>,
@@ -193,7 +223,7 @@ impl Queue {
          expire: Option<usize>,
          fall: Option<bool>,
          infinite: Option<bool>)
-         -> Result<(), Box<Error>> {
+         -> Result<()> {
         let wait = wait.unwrap_or(10);
         let timeout = timeout.unwrap_or(30);
         let freq = freq.unwrap_or(1);
@@ -239,7 +269,10 @@ impl Queue {
             thread::spawn(move || {
                 let r = match cafun(cid, cargs) {
                     Ok(o) => Status::FINISHED(o),
-                    Err(err) => Status::FAILED(err),
+                    Err(err) => Status::FAILED {
+                        message: err.to_string(),
+                        backtrace: err.display_chain().to_string(),
+                    },
                 };
                 tx.send(r).unwrap_or(())
             });
@@ -247,9 +280,6 @@ impl Queue {
             for _ in 0..(timeout * freq) {
                 let status = rx.try_recv().unwrap_or(Status::RUNNING(None));
                 job.status = status;
-                if let Status::FINISHED(result) = status {
-                    job.result = result;
-                }
                 match job.status {
                     Status::RUNNING(_) => break,
                     _ => {}
@@ -281,13 +311,20 @@ impl Queue {
     /// `id` - unique job identifier
     ///
     /// Returns job result
-    pub fn result(&self, id: &str) -> Result<Option<String>, Box<Error>> {
+    pub fn result(&self, id: &str) -> Result<Option<String>> {
         let client = redis::Client::open(self.url.as_str())?;
         let conn = client.get_connection()?;
 
         let json: String = conn.get(format!("{}:{}", self.name, id))?;
         let job: Job = serde_json::from_str(&json)?;
 
-        Ok(job.result)
+        match job.status {
+            Status::FINISHED(result) => Ok(result),
+            Status::QUEUED => Err(ErrorKind::JobQueued.into()),
+            Status::FAILED { message, backtrace } =>
+                Err(ErrorKind::JobFailed { message, backtrace }.into()),
+            Status::LOST => Err(ErrorKind::JobLost.into()),
+            Status::RUNNING(_) => Err(ErrorKind::JobRunning.into()),
+        }
     }
 }
