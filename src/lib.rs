@@ -90,7 +90,11 @@ pub mod errors {
     }
 }
 
-use errors::{ErrorKind, Result};
+pub use errors::{ErrorKind, Result};
+
+/// Return type for the 'process' function; wraps
+/// an optional result String and an error type.
+pub type JobResult = Result<Option<String>>;
 
 /// Job status
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -214,7 +218,7 @@ impl Queue {
     /// `fall` - panic if job was lost, true by default
     ///
     /// `infinite` - process jobs infinitely, true by default
-    pub fn work<F: Fn(String, Vec<String>) -> Result<Option<String>> + Send + Sync + 'static>
+    pub fn work<F: Fn(String, Vec<String>) -> JobResult + Send + Sync + 'static>
         (&self,
          fun: F,
          wait: Option<usize>,
@@ -311,7 +315,7 @@ impl Queue {
     /// `id` - unique job identifier
     ///
     /// Returns job result
-    pub fn result(&self, id: &str) -> Result<Option<String>> {
+    pub fn result(&self, id: &str) -> JobResult {
         let client = redis::Client::open(self.url.as_str())?;
         let conn = client.get_connection()?;
 
