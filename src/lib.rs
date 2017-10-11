@@ -63,7 +63,6 @@ use std::time::Duration;
 use std::thread::sleep;
 use std::marker::{Send, Sync};
 use std::sync::Arc;
-use error_chain::ChainedError;
 use redis::{Commands, Client};
 use uuid::Uuid;
 
@@ -90,11 +89,11 @@ pub mod errors {
     }
 }
 
-pub use errors::{ErrorKind, Result};
+pub use errors::ErrorKind;
 
 /// Return type for the 'process' function; wraps
 /// an optional result String and an error type.
-pub type JobResult = Result<Option<String>>;
+pub type JobResult<T> = Result<Option<String>, T>;
 
 /// Job status
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -155,7 +154,7 @@ impl Queue {
     }
 
     /// Delete enqueued jobs
-    pub fn drop(&self) -> Result<()> {
+    pub fn drop(&self) -> errors::Result<()> {
         let client = Client::open(self.url.as_str())?;
         let conn = client.get_connection()?;
 
@@ -172,7 +171,12 @@ impl Queue {
     /// removed
     ///
     /// Returns unique job identifier
-    pub fn enqueue(&self, id: Option<String>, args: Vec<String>, expire: usize) -> Result<String> {
+    pub fn enqueue(
+        &self,
+        id: Option<String>,
+        args: Vec<String>,
+        expire: usize,
+    ) -> errors::Result<String> {
         let client = Client::open(self.url.as_str())?;
         let conn = client.get_connection()?;
 
@@ -193,7 +197,7 @@ impl Queue {
     /// `id` - unique job identifier
     ///
     /// Returns job status
-    pub fn status(&self, id: &str) -> Result<Status> {
+    pub fn status(&self, id: &str) -> errors::Result<Status> {
         let client = redis::Client::open(self.url.as_str())?;
         let conn = client.get_connection()?;
 
@@ -220,7 +224,7 @@ impl Queue {
     /// `fall` - panic if job was lost, true by default
     ///
     /// `infinite` - process jobs infinitely, true by default
-    pub fn work<F: Fn(String, Vec<String>) -> JobResult + Send + Sync + 'static>(
+    pub fn work<T, F: Fn(String, Vec<String>) -> JobResult<T> + Send + Sync + 'static>(
         &self,
         fun: F,
         wait: Option<usize>,
@@ -229,7 +233,13 @@ impl Queue {
         expire: Option<usize>,
         fall: Option<bool>,
         infinite: Option<bool>,
-    ) -> Result<()> {
+    ) -> Result<(), T>
+    where
+        T: std::convert::From<redis::RedisError>
+            + std::convert::From<serde_json::Error>
+            + std::fmt::Display
+            + error_chain::ChainedError,
+    {
         let wait = wait.unwrap_or(10);
         let timeout = timeout.unwrap_or(30);
         let freq = freq.unwrap_or(1);
@@ -321,7 +331,7 @@ impl Queue {
     /// `id` - unique job identifier
     ///
     /// Returns job result
-    pub fn result(&self, id: &str) -> JobResult {
+    pub fn result(&self, id: &str) -> errors::Result<Option<String>> {
         let client = redis::Client::open(self.url.as_str())?;
         let conn = client.get_connection()?;
 

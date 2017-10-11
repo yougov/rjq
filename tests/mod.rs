@@ -1,10 +1,25 @@
 #[cfg(test)]
-
+#[macro_use]
+extern crate error_chain;
 extern crate rjq;
 
 use std::time::Duration;
 use std::thread::sleep;
-use rjq::{Status, Queue, JobResult};
+use rjq::{Status, Queue};
+
+
+mod errors {
+    extern crate redis;
+    extern crate serde_json;
+    error_chain!{
+        foreign_links {
+            Redis(redis::RedisError);
+            Serde(serde_json::Error);
+        }
+    }
+}
+
+type JobResult = rjq::JobResult<errors::Error>;
 
 #[test]
 fn test_job_queued() {

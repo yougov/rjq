@@ -1,8 +1,23 @@
+#[macro_use]
+extern crate error_chain;
 extern crate rjq;
 
 use std::time::Duration;
 use std::thread::sleep;
-use rjq::{JobResult, Queue};
+use rjq::Queue;
+
+mod errors {
+    extern crate redis;
+    extern crate serde_json;
+    error_chain!{
+        foreign_links {
+            Redis(redis::RedisError);
+            Serde(serde_json::Error);
+        }
+    }
+}
+
+type JobResult = rjq::JobResult<errors::Error>;
 
 fn main() {
     fn process(uuid: String, _: Vec<String>) -> JobResult {
