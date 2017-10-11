@@ -281,8 +281,8 @@ impl Queue {
                 let status = rx.try_recv().unwrap_or(Status::RUNNING(None));
                 job.status = status;
                 match job.status {
-                    Status::RUNNING(_) => break,
-                    _ => {}
+                    Status::RUNNING(_) => {},
+                    _ => break,
                 }
                 sleep(Duration::from_millis(1000 / freq as u64));
             }
