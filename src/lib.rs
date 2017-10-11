@@ -172,11 +172,11 @@ impl Queue {
     /// removed
     ///
     /// Returns unique job identifier
-    pub fn enqueue(&self, id: Option<String>, args: Vec<String>, expire: usize) -> Result<String> {
+    pub fn enqueue(&self, id: Option<&str>, args: Vec<String>, expire: usize) -> Result<String> {
         let client = Client::open(self.url.as_str())?;
         let conn = client.get_connection()?;
 
-        let job = Job::new(id, args);
+        let job = Job::new(id.map(|x| x.to_string()), args);
 
         let _: () = conn.set_ex(format!("{}:{}", self.name, job.id),
                                 serde_json::to_string(&job)?,
