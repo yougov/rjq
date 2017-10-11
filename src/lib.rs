@@ -71,13 +71,13 @@ pub enum Status {
     /// Job is queued
     QUEUED,
     /// Job is running
-    RUNNING,
+    RUNNING(Option<String>),
     /// Job was lost - timeout exceeded
     LOST,
     /// Job finished successfully
-    FINISHED,
+    FINISHED(Option<String>),
     /// Job failed
-    FAILED,
+    FAILED(String),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -184,7 +184,7 @@ impl Queue {
     /// `fall` - panic if job was lost, true by default
     ///
     /// `infinite` - process jobs infinitely, true by default
-    pub fn work<F: Fn(String, Vec<String>) -> Result<String, Box<Error>> + Send + Sync + 'static>
+    pub fn work<F: Fn(String, Vec<String>) -> Result<Option<String>, Box<Error>> + Send + Sync + 'static>
         (&self,
          fun: F,
          wait: Option<usize>,
@@ -229,7 +229,7 @@ impl Queue {
 
             let mut job: Job = serde_json::from_str(&json)?;
 
-            job.status = Status::RUNNING;
+            job.status = Status::RUNNING(None);
             let _: () = conn.set_ex(&key, serde_json::to_string(&job)?, timeout + expire)?;
 
             let (tx, rx) = channel();
@@ -237,24 +237,30 @@ impl Queue {
             let cuuid = uuid.clone();
             let cargs = job.args.clone();
             thread::spawn(move || {
-                let r = match cafun(cuuid, cargs) {
-                    Ok(o) => (Status::FINISHED, Some(o)),
-                    Err(_) => (Status::FAILED, None),
+                let r = match cafun(cid, cargs) {
+                    Ok(o) => Status::FINISHED(o),
+                    Err(err) => Status::FAILED(err),
                 };
                 tx.send(r).unwrap_or(())
             });
 
             for _ in 0..(timeout * freq) {
-                let (status, result) = rx.try_recv().unwrap_or((Status::RUNNING, None));
+                let status = rx.try_recv().unwrap_or(Status::RUNNING(None));
                 job.status = status;
-                job.result = result;
-                if job.status != Status::RUNNING {
-                    break;
+                if let Status::FINISHED(result) = status {
+                    job.result = result;
+                }
+                match job.status {
+                    Status::RUNNING(_) => break,
+                    _ => {}
                 }
                 sleep(Duration::from_millis(1000 / freq as u64));
             }
-            if job.status == Status::RUNNING {
-                job.status = Status::LOST;
+            match job.status {
+                Status::RUNNING(_) => {
+                    job.status = Status::LOST;
+                },
+                _ => {}
             }
             let _: () = conn.set_ex(&key, serde_json::to_string(&job)?, expire)?;
 
