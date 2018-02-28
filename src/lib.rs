@@ -53,6 +53,7 @@ extern crate redis;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
+#[macro_use]
 extern crate serde_json;
 extern crate uuid;
 
@@ -139,6 +140,13 @@ pub struct Queue {
 }
 
 impl Queue {
+    /// Return a Redis connection for this Queue
+    fn redis_connection(&self) -> errors::Result<redis::Connection> {
+        let client = redis::Client::open(self.url.as_str())?;
+        let conn = client.get_connection()?;
+        Ok(conn)
+    }
+
     /// Init new queue object
     ///
     /// `url` - redis url to connect
@@ -153,8 +161,7 @@ impl Queue {
 
     /// Delete enqueued jobs
     pub fn drop(&self) -> errors::Result<()> {
-        let client = Client::open(self.url.as_str())?;
-        let conn = client.get_connection()?;
+        let conn = self.redis_connection()?;
 
         let _: () = conn.del(format!("{}:ids", self.name))?;
 
@@ -196,13 +203,28 @@ impl Queue {
     ///
     /// Returns job status
     pub fn status(&self, id: &str) -> errors::Result<Status> {
-        let client = redis::Client::open(self.url.as_str())?;
-        let conn = client.get_connection()?;
-
+        let conn = self.redis_connection()?;
         let json: String = conn.get(format!("{}:{}", self.name, id))?;
         let job: Job = serde_json::from_str(&json)?;
 
         Ok(job.status)
+    }
+
+    /// List jobs
+    ///
+    /// Returns list of jobs in JSON format
+    pub fn get_jobs_json(&self) -> errors::Result<serde_json::Value> {
+        let conn = self.redis_connection()?;
+        let keys: Vec<String> = conn.keys(format!("{}:*", self.name))?;
+
+        let mut jobs: Vec<Job> = Vec::new();
+        for key in &keys {
+            let json: String = conn.get(format!("{}", key))?;
+            let job: Job = serde_json::from_str(&json)?;
+            jobs.push(job);
+        }
+
+        Ok(json!({ "jobs": jobs }))
     }
 
     /// Work on queue, process enqueued jobs
@@ -235,6 +257,7 @@ impl Queue {
     where
         T: std::convert::From<redis::RedisError>
             + std::convert::From<serde_json::Error>
+            + std::convert::From<errors::Error>
             + std::fmt::Display
             + error_chain::ChainedError,
     {
@@ -245,8 +268,7 @@ impl Queue {
         let fall = fall.unwrap_or(true);
         let infinite = infinite.unwrap_or(true);
 
-        let client = redis::Client::open(self.url.as_str())?;
-        let conn = client.get_connection()?;
+        let conn = self.redis_connection()?;
 
         let afun = Arc::new(fun);
         let ids_key = format!("{}:ids", self.name);
@@ -323,8 +345,7 @@ impl Queue {
     ///
     /// Returns job result
     pub fn result(&self, id: &str) -> errors::Result<Option<String>> {
-        let client = redis::Client::open(self.url.as_str())?;
-        let conn = client.get_connection()?;
+        let conn = self.redis_connection()?;
 
         let json: String = conn.get(format!("{}:{}", self.name, id))?;
         let job: Job = serde_json::from_str(&json)?;
