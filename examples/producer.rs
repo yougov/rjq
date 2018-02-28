@@ -13,9 +13,9 @@ fn main() {
         uuids.push(queue.enqueue(None, vec![], 30).unwrap());
     }
 
-    sleep(Duration::from_millis(10000));
+    sleep(Duration::from_millis(10_000));
 
-    for uuid in uuids.iter() {
+    for uuid in &uuids {
         let status = queue.status(uuid).unwrap();
         let result = queue.result(uuid).unwrap();
         println!("{} {:?} {}", uuid, status, result.unwrap());

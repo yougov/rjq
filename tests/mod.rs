@@ -5,8 +5,7 @@ extern crate rjq;
 
 use std::time::Duration;
 use std::thread::sleep;
-use rjq::{Status, Queue};
-
+use rjq::{Queue, Status};
 
 mod errors {
     extern crate redis;
@@ -47,7 +46,7 @@ fn test_job_expired() {
 #[test]
 fn test_job_finished() {
     fn fn_ok(_: String, _: Vec<String>) -> JobResult {
-        sleep(Duration::from_millis(1000));
+        sleep(Duration::from_millis(1_000));
         Ok(Some("ok".to_string()))
     }
 
@@ -134,7 +133,7 @@ fn test_job_failed() {
 #[test]
 fn test_job_lost() {
     fn fn_ok(_: String, _: Vec<String>) -> JobResult {
-        sleep(Duration::from_millis(10000));
+        sleep(Duration::from_millis(10_000));
         Ok(Some("ok".to_string()))
     }
 

@@ -47,14 +47,13 @@
 //! ```
 
 #![deny(missing_docs)]
-
 #[macro_use]
 extern crate error_chain;
+extern crate redis;
+extern crate serde;
 #[macro_use]
 extern crate serde_derive;
-extern crate serde;
 extern crate serde_json;
-extern crate redis;
 extern crate uuid;
 
 use std::thread;
@@ -63,9 +62,8 @@ use std::time::Duration;
 use std::thread::sleep;
 use std::marker::{Send, Sync};
 use std::sync::Arc;
-use redis::{Commands, Client};
+use redis::{Client, Commands};
 use uuid::Uuid;
-
 
 pub mod errors {
     #![allow(missing_docs)]
@@ -125,7 +123,7 @@ struct Job {
 impl Job {
     fn new(id: Option<String>, args: Vec<String>) -> Job {
         Job {
-            id: id.unwrap_or(Uuid::new_v4().to_string()),
+            id: id.unwrap_or_else(|| Uuid::new_v4().to_string()),
             status: Status::QUEUED,
             args: args,
         }
@@ -276,11 +274,7 @@ impl Queue {
             let mut job: Job = serde_json::from_str(&json)?;
 
             job.status = Status::RUNNING(None);
-            let _: () = conn.set_ex(
-                &key,
-                serde_json::to_string(&job)?,
-                timeout + expire,
-            )?;
+            let _: () = conn.set_ex(&key, serde_json::to_string(&job)?, timeout + expire)?;
 
             let (tx, rx) = channel();
             let cafun = afun.clone();
@@ -306,11 +300,8 @@ impl Queue {
                 }
                 sleep(Duration::from_millis(1000 / freq as u64));
             }
-            match job.status {
-                Status::RUNNING(_) => {
-                    job.status = Status::LOST;
-                }
-                _ => {}
+            if let Status::RUNNING(_) = job.status {
+                job.status = Status::LOST
             }
             let _: () = conn.set_ex(&key, serde_json::to_string(&job)?, expire)?;
 
@@ -341,10 +332,9 @@ impl Queue {
         match job.status {
             Status::FINISHED(result) => Ok(result),
             Status::QUEUED => Err(ErrorKind::JobQueued.into()),
-            Status::FAILED { message, backtrace } => Err(
-                ErrorKind::JobFailed { message, backtrace }
-                    .into(),
-            ),
+            Status::FAILED { message, backtrace } => {
+                Err(ErrorKind::JobFailed { message, backtrace }.into())
+            }
             Status::LOST => Err(ErrorKind::JobLost.into()),
             Status::RUNNING(_) => Err(ErrorKind::JobRunning.into()),
         }
