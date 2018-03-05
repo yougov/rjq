@@ -9,12 +9,12 @@ use rjq::Queue;
 mod errors {
     extern crate redis;
     extern crate serde_json;
-    use rjq::errors as rjqErrors;
+    use rjq::errors::Error as RjqError;
     error_chain!{
         foreign_links {
             Redis(redis::RedisError);
             Serde(serde_json::Error);
-            Rjq(rjqErrors::Error);
+            Rjq(RjqError);
         }
     }
 }
