@@ -220,8 +220,9 @@ impl Queue {
         let mut jobs: Vec<Job> = Vec::new();
         for key in &keys {
             let json: String = conn.get(format!("{}", key))?;
-            let job: Job = serde_json::from_str(&json)?;
-            jobs.push(job);
+            if let Ok(job) = serde_json::from_str(&json) {
+                jobs.push(job)
+            }
         }
 
         Ok(json!({ "jobs": jobs }))
