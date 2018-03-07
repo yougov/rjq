@@ -217,13 +217,10 @@ impl Queue {
         let conn = self.redis_connection()?;
         let keys: Vec<String> = conn.keys(format!("{}:*", self.name))?;
 
-        let mut jobs: Vec<Job> = Vec::new();
-        for key in &keys {
-            let json: String = conn.get(format!("{}", key))?;
-            if let Ok(job) = serde_json::from_str(&json) {
-                jobs.push(job)
-            }
-        }
+        let jobs: Vec<Job> = keys.iter()
+            .filter_map(|key| conn.get(format!("{}", key)).ok())
+            .filter_map(|json: String| serde_json::from_str(&json).ok())
+            .collect();
 
         Ok(json!({ "jobs": jobs }))
     }
