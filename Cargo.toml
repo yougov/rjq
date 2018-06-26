@@ -15,7 +15,7 @@ description = """Redis job queue"""
 travis-ci = { repository = "embali/rjq" }
 
 [dependencies]
-error-chain = "0.11"
+error-chain = "0.12"
 redis = "0.8"
 uuid = { version = "0.6", features = ["v4"] }
 serde = "1.0"
