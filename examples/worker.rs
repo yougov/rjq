@@ -2,9 +2,9 @@
 extern crate error_chain;
 extern crate rjq;
 
-use std::time::Duration;
-use std::thread::sleep;
 use rjq::Queue;
+use std::thread::sleep;
+use std::time::Duration;
 
 mod errors {
     extern crate redis;

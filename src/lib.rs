@@ -57,13 +57,13 @@ extern crate serde_derive;
 extern crate serde_json;
 extern crate uuid;
 
-use std::thread;
-use std::sync::mpsc::channel;
-use std::time::Duration;
-use std::thread::sleep;
-use std::marker::{Send, Sync};
-use std::sync::Arc;
 use redis::{Client, Commands};
+use std::marker::{Send, Sync};
+use std::sync::mpsc::channel;
+use std::sync::Arc;
+use std::thread;
+use std::thread::sleep;
+use std::time::Duration;
 use uuid::Uuid;
 
 pub mod errors {
@@ -217,7 +217,8 @@ impl Queue {
         let conn = self.redis_connection()?;
         let keys: Vec<String> = conn.keys(format!("{}:*", self.name))?;
 
-        let jobs: Vec<Job> = keys.iter()
+        let jobs: Vec<Job> = keys
+            .iter()
             .filter_map(|key| conn.get(format!("{}", key)).ok())
             .filter_map(|json: String| serde_json::from_str(&json).ok())
             .collect();

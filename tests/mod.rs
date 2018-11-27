@@ -3,9 +3,9 @@
 extern crate error_chain;
 extern crate rjq;
 
-use std::time::Duration;
-use std::thread::sleep;
 use rjq::{Queue, Status};
+use std::thread::sleep;
+use std::time::Duration;
 
 mod errors {
     extern crate redis;
@@ -65,8 +65,7 @@ fn test_job_finished() {
             Some(5),
             Some(false),
             Some(false),
-        )
-        .unwrap();
+        ).unwrap();
 
     let status = queue.status(&uuid).unwrap();
     assert!(status == Status::FINISHED(Some("ok".to_string())));
@@ -92,8 +91,7 @@ fn test_job_result() {
             Some(5),
             Some(false),
             Some(false),
-        )
-        .unwrap();
+        ).unwrap();
 
     let res = queue.result(&uuid).unwrap();
     assert!(res == Some("ok".to_string()));
@@ -119,8 +117,7 @@ fn test_job_failed() {
             Some(5),
             Some(false),
             Some(false),
-        )
-        .unwrap();
+        ).unwrap();
 
     let status = queue.status(&uuid).unwrap();
     assert_eq!(
@@ -152,8 +149,7 @@ fn test_job_lost() {
             Some(5),
             Some(false),
             Some(false),
-        )
-        .unwrap();
+        ).unwrap();
 
     let status = queue.status(&uuid).unwrap();
     assert!(status == Status::LOST);
