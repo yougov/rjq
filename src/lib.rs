@@ -323,6 +323,10 @@ impl Queue {
             if let Status::RUNNING(_) = job.status {
                 job.status = Status::LOST
             }
+
+            // Reconnect to Redis in case job ran for longer than
+            // Redis connection timeout
+            let conn = self.redis_connection()?;
             let _: () = conn.set_ex(&key, serde_json::to_string(&job)?, expire)?;
 
             if fall && job.status == Status::LOST {
