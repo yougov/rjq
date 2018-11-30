@@ -295,12 +295,27 @@ impl Queue {
             let mut job: Job = serde_json::from_str(&json)?;
 
             job.status = Status::RUNNING(None);
-            let _: () = conn.set_ex(&key, serde_json::to_string(&job)?, timeout + expire)?;
+            // Update job in Redis.
+            // The job should fail if:
+            //   - the timeout is reached
+            //   - the worker function fails
+            //   - the worker dies unexpectedly (e.g. a panic or host failure)
+            // We expire the key in `10 * freq` seconds, and expect the
+            // worker to update that expiry time every `freq` seconds
+            // while the job is still running, until `timeout` has expired
+            // (`10 * freq` is an arbitrary choice made to allow for network
+            // failures etc).
+            // After the job has finished, we should set the expiry time to
+            // `expiry` seconds so clients can check the results.
+            let running_expiry = 10 * freq;
+            let _: () = conn.set_ex(&key, serde_json::to_string(&job)?, running_expiry)?;
 
             let (tx, rx) = channel();
             let cafun = afun.clone();
             let cid = id.clone();
             let cargs = job.args.clone();
+            // Run the function in a different thread. When it completes (or fails),
+            // send the result back through the transmitter.
             thread::spawn(move || {
                 let r = match cafun(cid, cargs) {
                     Ok(o) => Status::FINISHED(o),
@@ -312,11 +327,16 @@ impl Queue {
                 tx.send(r).unwrap_or(())
             });
 
+            // Poll for job completion.
             for _ in 0..(timeout * freq) {
                 let status = rx.try_recv().unwrap_or(Status::RUNNING(None));
                 job.status = status;
                 match job.status {
-                    Status::RUNNING(_) => {}
+                    Status::RUNNING(_) => {
+                        let _: () = conn
+                            .expire(&key, running_expiry)
+                            .unwrap_or_else(|e| println!("Could not update expiry time: {}", e));
+                    }
                     _ => break,
                 }
                 sleep(Duration::from_millis(1000 / freq as u64));
@@ -325,9 +345,6 @@ impl Queue {
                 job.status = Status::LOST
             }
 
-            // Reconnect to Redis in case job ran for longer than
-            // Redis connection timeout
-            let conn = self.redis_connection()?;
             let _: () = conn.set_ex(&key, serde_json::to_string(&job)?, expire)?;
 
             if fall && job.status == Status::LOST {
