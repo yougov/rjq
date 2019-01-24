@@ -10,7 +10,7 @@ mod errors {
     extern crate redis;
     extern crate serde_json;
     use rjq::errors::Error as RjqError;
-    error_chain!{
+    error_chain! {
         foreign_links {
             Redis(redis::RedisError);
             Serde(serde_json::Error);
@@ -28,7 +28,7 @@ fn main() {
         Ok(Some(format!("hi from {}", uuid)))
     }
 
-    let queue = Queue::new("redis://localhost/", "rjq");
+    let queue: Queue = Queue::new("redis://localhost/", "rjq").unwrap();
     queue
         .work(process, None, Some(5), Some(10), None, Some(false), None)
         .unwrap();

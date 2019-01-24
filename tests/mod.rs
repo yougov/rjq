@@ -11,7 +11,7 @@ mod errors {
     extern crate redis;
     extern crate serde_json;
     use rjq::errors::Error as RjqError;
-    error_chain!{
+    error_chain! {
         foreign_links {
             Redis(redis::RedisError);
             Serde(serde_json::Error);
@@ -24,7 +24,7 @@ type JobResult = rjq::JobResult<errors::Error>;
 
 #[test]
 fn test_job_queued() {
-    let queue = Queue::new("redis://localhost/", "test-queued");
+    let queue = Queue::new("redis://localhost/", "test-queued").unwrap();
     queue.drop().unwrap();
 
     let uuid = queue.enqueue(None, vec![], 5).unwrap();
@@ -36,7 +36,7 @@ fn test_job_queued() {
 #[test]
 #[should_panic]
 fn test_job_expired() {
-    let queue = Queue::new("redis://localhost/", "test-expired");
+    let queue = Queue::new("redis://localhost/", "test-expired").unwrap();
     queue.drop().unwrap();
 
     let uuid = queue.enqueue(None, vec![], 1).unwrap();
@@ -52,7 +52,7 @@ fn test_job_finished() {
         Ok(Some("ok".to_string()))
     }
 
-    let queue = Queue::new("redis://localhost/", "test-finished");
+    let queue = Queue::new("redis://localhost/", "test-finished").unwrap();
     queue.drop().unwrap();
 
     let uuid = queue.enqueue(None, vec![], 10).unwrap();
@@ -65,7 +65,8 @@ fn test_job_finished() {
             Some(5),
             Some(false),
             Some(false),
-        ).unwrap();
+        )
+        .unwrap();
 
     let status = queue.status(&uuid).unwrap();
     assert!(status == Status::FINISHED(Some("ok".to_string())));
@@ -78,7 +79,7 @@ fn test_job_result() {
         Ok(Some("ok".to_string()))
     }
 
-    let queue = Queue::new("redis://localhost/", "test-result");
+    let queue = Queue::new("redis://localhost/", "test-result").unwrap();
     queue.drop().unwrap();
 
     let uuid = queue.enqueue(None, vec![], 10).unwrap();
@@ -91,7 +92,8 @@ fn test_job_result() {
             Some(5),
             Some(false),
             Some(false),
-        ).unwrap();
+        )
+        .unwrap();
 
     let res = queue.result(&uuid).unwrap();
     assert!(res == Some("ok".to_string()));
@@ -104,7 +106,7 @@ fn test_job_failed() {
         Err("err".into())
     }
 
-    let queue = Queue::new("redis://localhost/", "test-failed");
+    let queue = Queue::new("redis://localhost/", "test-failed").unwrap();
     queue.drop().unwrap();
 
     let uuid = queue.enqueue(None, vec![], 10).unwrap();
@@ -117,7 +119,8 @@ fn test_job_failed() {
             Some(5),
             Some(false),
             Some(false),
-        ).unwrap();
+        )
+        .unwrap();
 
     let status = queue.status(&uuid).unwrap();
     assert_eq!(
@@ -136,7 +139,7 @@ fn test_job_lost() {
         Ok(Some("ok".to_string()))
     }
 
-    let queue = Queue::new("redis://localhost/", "test-lost");
+    let queue = Queue::new("redis://localhost/", "test-lost").unwrap();
     queue.drop().unwrap();
 
     let uuid = queue.enqueue(None, vec![], 10).unwrap();
@@ -149,7 +152,8 @@ fn test_job_lost() {
             Some(5),
             Some(false),
             Some(false),
-        ).unwrap();
+        )
+        .unwrap();
 
     let status = queue.status(&uuid).unwrap();
     assert!(status == Status::LOST);

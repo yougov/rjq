@@ -49,6 +49,8 @@
 #![deny(missing_docs)]
 #[macro_use]
 extern crate error_chain;
+extern crate r2d2;
+extern crate r2d2_redis;
 extern crate redis;
 extern crate serde;
 #[macro_use]
@@ -57,7 +59,8 @@ extern crate serde_derive;
 extern crate serde_json;
 extern crate uuid;
 
-use redis::{Client, Commands};
+use r2d2_redis::RedisConnectionManager;
+use redis::Commands;
 use std::marker::{Send, Sync};
 use std::sync::mpsc::channel;
 use std::sync::Arc;
@@ -82,6 +85,7 @@ pub mod errors {
         }
 
         foreign_links {
+            R2d2(r2d2::Error);
             Redis(redis::RedisError);
             Serde(serde_json::Error);
         }
@@ -131,20 +135,21 @@ impl Job {
     }
 }
 
+type RedisPool = r2d2::Pool<RedisConnectionManager>;
+type RedisConn = r2d2::PooledConnection<RedisConnectionManager>;
+
 /// Queue
-pub struct Queue {
+pub struct Queue<'a> {
     /// Redis url
-    url: String,
+    pool: RedisPool,
     /// Queue name
-    name: String,
+    name: &'a str,
 }
 
-impl Queue {
+impl<'a> Queue<'a> {
     /// Return a Redis connection for this Queue
-    fn redis_connection(&self) -> errors::Result<redis::Connection> {
-        let client = redis::Client::open(self.url.as_str())?;
-        let conn = client.get_connection()?;
-        Ok(conn)
+    fn redis_connection(&self) -> errors::Result<RedisConn> {
+        Ok(self.pool.get()?)
     }
 
     /// Init new queue object
@@ -152,11 +157,10 @@ impl Queue {
     /// `url` - redis url to connect
     ///
     /// `name` - queue name
-    pub fn new(url: &str, name: &str) -> Queue {
-        Queue {
-            url: url.to_string(),
-            name: name.to_string(),
-        }
+    pub fn new(url: &str, name: &'a str, pool_size: u32) -> errors::Result<Queue<'a>> {
+        let manager = RedisConnectionManager::new(url)?;
+        let pool = r2d2::Builder::new().max_size(pool_size).build(manager)?;
+        Ok(Queue { pool, name })
     }
 
     /// Delete enqueued jobs
@@ -182,8 +186,7 @@ impl Queue {
         args: Vec<String>,
         expire: usize,
     ) -> errors::Result<String> {
-        let client = Client::open(self.url.as_str())?;
-        let conn = client.get_connection()?;
+        let conn = self.redis_connection()?;
 
         let job = Job::new(id, args);
 
