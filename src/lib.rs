@@ -165,7 +165,7 @@ impl<'a> Queue<'a> {
 
     /// Delete enqueued jobs
     pub fn drop(&self) -> errors::Result<()> {
-        let conn = self.redis_connection()?;
+        let mut conn = self.redis_connection()?;
 
         let _: () = conn.del(format!("{}:ids", self.name))?;
 
@@ -186,7 +186,7 @@ impl<'a> Queue<'a> {
         args: Vec<String>,
         expire: usize,
     ) -> errors::Result<String> {
-        let conn = self.redis_connection()?;
+        let mut conn = self.redis_connection()?;
 
         let job = Job::new(id, args);
 
@@ -206,7 +206,7 @@ impl<'a> Queue<'a> {
     ///
     /// Returns job status
     pub fn status(&self, id: &str) -> errors::Result<Status> {
-        let conn = self.redis_connection()?;
+        let mut conn = self.redis_connection()?;
         let json: String = conn.get(format!("{}:{}", self.name, id))?;
         let job: Job = serde_json::from_str(&json)?;
 
@@ -217,7 +217,7 @@ impl<'a> Queue<'a> {
     ///
     /// Returns list of jobs in JSON format
     pub fn get_jobs_json(&self) -> errors::Result<serde_json::Value> {
-        let conn = self.redis_connection()?;
+        let mut conn = self.redis_connection()?;
         let keys: Vec<String> = conn.keys(format!("{}:*", self.name))?;
 
         let jobs: Vec<Job> = keys
@@ -270,7 +270,7 @@ impl<'a> Queue<'a> {
         let fall = fall.unwrap_or(true);
         let infinite = infinite.unwrap_or(true);
 
-        let conn = self.redis_connection()?;
+        let mut conn = self.redis_connection()?;
 
         let afun = Arc::new(fun);
         let ids_key = format!("{}:ids", self.name);
@@ -368,7 +368,7 @@ impl<'a> Queue<'a> {
     ///
     /// Returns job result
     pub fn result(&self, id: &str) -> errors::Result<Option<String>> {
-        let conn = self.redis_connection()?;
+        let mut conn = self.redis_connection()?;
 
         let json: String = conn.get(format!("{}:{}", self.name, id))?;
         let job: Job = serde_json::from_str(&json)?;
