@@ -1,9 +1,11 @@
 # Redis Job Queue
 
+**This is a fork of the [original unmaintained repo](https://github.com/embali/rjq).**
+
 Simple redis job queue
 
 [![crates.io](https://img.shields.io/crates/v/rjq.svg)](https://crates.io/crates/rjq)
-[![Build Status](https://travis-ci.org/embali/rjq.svg?branch=master)](https://travis-ci.org/embali/rjq)
+[![Build Status](https://travis-ci.org/yougov/rjq.svg?branch=master)](https://travis-ci.org/yougov/rjq)
 
 
 ## Documentation
