@@ -5,7 +5,7 @@
 Simple redis job queue
 
 [![crates.io](https://img.shields.io/crates/v/rjq.svg)](https://crates.io/crates/rjq)
-[![Build Status](https://travis-ci.org/yougov/rjq.svg?branch=master)](https://travis-ci.org/yougov/rjq)
+[![Build Status](https://travis-ci.org/yougov/rjq.svg?branch=dev)](https://travis-ci.org/yougov/rjq)
 
 
 ## Documentation
