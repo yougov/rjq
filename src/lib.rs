@@ -46,11 +46,11 @@
 //! queue.work(process, None, Some(60), None, Some(30), Some(false), None)?;
 //! ```
 
+#![allow(clippy::too_many_arguments)]
 #![deny(missing_docs)]
 #[macro_use]
 extern crate error_chain;
 extern crate r2d2;
-extern crate r2d2_redis;
 extern crate redis;
 extern crate serde;
 #[macro_use]
@@ -59,8 +59,7 @@ extern crate serde_derive;
 extern crate serde_json;
 extern crate uuid;
 
-use r2d2_redis::RedisConnectionManager;
-use redis::Commands;
+use redis::{Client, Commands};
 use std::marker::{Send, Sync};
 use std::sync::mpsc::channel;
 use std::sync::Arc;
@@ -130,13 +129,13 @@ impl Job {
         Job {
             id: id.unwrap_or_else(|| Uuid::new_v4().to_string()),
             status: Status::QUEUED,
-            args: args,
+            args,
         }
     }
 }
 
-type RedisPool = r2d2::Pool<RedisConnectionManager>;
-type RedisConn = r2d2::PooledConnection<RedisConnectionManager>;
+type RedisPool = r2d2::Pool<Client>;
+type RedisConn = r2d2::PooledConnection<Client>;
 
 /// Queue
 pub struct Queue<'a> {
@@ -158,8 +157,8 @@ impl<'a> Queue<'a> {
     ///
     /// `name` - queue name
     pub fn new(url: &str, name: &'a str, pool_size: u32) -> errors::Result<Queue<'a>> {
-        let manager = RedisConnectionManager::new(url)?;
-        let pool = r2d2::Builder::new().max_size(pool_size).build(manager)?;
+        let client = redis::Client::open(url)?;
+        let pool = r2d2::Builder::new().max_size(pool_size).build(client)?;
         Ok(Queue { pool, name })
     }
 
@@ -167,7 +166,7 @@ impl<'a> Queue<'a> {
     pub fn drop(&self) -> errors::Result<()> {
         let mut conn = self.redis_connection()?;
 
-        let _: () = conn.del(format!("{}:ids", self.name))?;
+        conn.del(format!("{}:ids", self.name))?;
 
         Ok(())
     }
@@ -190,12 +189,12 @@ impl<'a> Queue<'a> {
 
         let job = Job::new(id, args);
 
-        let _: () = conn.set_ex(
+        conn.set_ex(
             format!("{}:{}", self.name, job.id),
             serde_json::to_string(&job)?,
             expire,
         )?;
-        let _: () = conn.rpush(format!("{}:ids", self.name), &job.id)?;
+        conn.rpush(format!("{}:ids", self.name), &job.id)?;
 
         Ok(job.id)
     }
@@ -222,7 +221,7 @@ impl<'a> Queue<'a> {
 
         let jobs: Vec<Job> = keys
             .iter()
-            .filter_map(|key| conn.get(format!("{}", key)).ok())
+            .filter_map(|key| conn.get(key.to_string()).ok())
             .filter_map(|json: String| serde_json::from_str(&json).ok())
             .collect();
 
@@ -311,7 +310,7 @@ impl<'a> Queue<'a> {
             // After the job has finished, we should set the expiry time to
             // `expiry` seconds so clients can check the results.
             let running_expiry = 10 * freq;
-            let _: () = conn.set_ex(&key, serde_json::to_string(&job)?, running_expiry)?;
+            conn.set_ex(&key, serde_json::to_string(&job)?, running_expiry)?;
 
             let (tx, rx) = channel();
             let cafun = afun.clone();
@@ -336,8 +335,7 @@ impl<'a> Queue<'a> {
                 job.status = status;
                 match job.status {
                     Status::RUNNING(_) => {
-                        let _: () = conn
-                            .expire(&key, running_expiry)
+                        conn.expire(&key, running_expiry)
                             .unwrap_or_else(|e| println!("Could not update expiry time: {}", e));
                     }
                     _ => break,
@@ -348,7 +346,7 @@ impl<'a> Queue<'a> {
                 job.status = Status::LOST
             }
 
-            let _: () = conn.set_ex(&key, serde_json::to_string(&job)?, expire)?;
+            conn.set_ex(&key, serde_json::to_string(&job)?, expire)?;
 
             if fall && job.status == Status::LOST {
                 panic!("LOST");
