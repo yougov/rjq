@@ -9,7 +9,7 @@
 //! use std::thread::sleep;
 //! use rjq::{Queue, Status};
 //!
-//! let queue = Queue::new("redis://localhost/", "rjq");
+//! let queue = Queue::new("redis://localhost/", "rjq", 10);
 //! let mut uuids = Vec::new();
 //!
 //! for _ in 0..10 {
@@ -42,7 +42,7 @@
 //!     Ok(format!("hi from {}", uuid))
 //! }
 //!
-//! let queue = Queue::new("redis://localhost/", "rjq");
+//! let queue = Queue::new("redis://localhost/", "rjq", 10);
 //! queue.work(process, None, Some(60), None, Some(30), Some(false), None)?;
 //! ```
 

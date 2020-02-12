@@ -5,7 +5,7 @@ use std::thread::sleep;
 use std::time::Duration;
 
 fn main() {
-    let queue = Queue::new("redis://localhost/", "rjq").unwrap();
+    let queue = Queue::new("redis://localhost/", "rjq", 10).unwrap();
     let mut uuids = Vec::new();
 
     for _ in 0..10 {

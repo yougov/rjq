@@ -24,7 +24,7 @@ type JobResult = rjq::JobResult<errors::Error>;
 
 #[test]
 fn test_job_queued() {
-    let queue = Queue::new("redis://localhost/", "test-queued").unwrap();
+    let queue = Queue::new("redis://localhost/", "test-queued", 10).unwrap();
     queue.drop().unwrap();
 
     let uuid = queue.enqueue(None, vec![], 5).unwrap();
@@ -36,7 +36,7 @@ fn test_job_queued() {
 #[test]
 #[should_panic]
 fn test_job_expired() {
-    let queue = Queue::new("redis://localhost/", "test-expired").unwrap();
+    let queue = Queue::new("redis://localhost/", "test-expired", 10).unwrap();
     queue.drop().unwrap();
 
     let uuid = queue.enqueue(None, vec![], 1).unwrap();
@@ -52,7 +52,7 @@ fn test_job_finished() {
         Ok(Some("ok".to_string()))
     }
 
-    let queue = Queue::new("redis://localhost/", "test-finished").unwrap();
+    let queue = Queue::new("redis://localhost/", "test-finished", 10).unwrap();
     queue.drop().unwrap();
 
     let uuid = queue.enqueue(None, vec![], 10).unwrap();
@@ -79,7 +79,7 @@ fn test_job_result() {
         Ok(Some("ok".to_string()))
     }
 
-    let queue = Queue::new("redis://localhost/", "test-result").unwrap();
+    let queue = Queue::new("redis://localhost/", "test-result", 10).unwrap();
     queue.drop().unwrap();
 
     let uuid = queue.enqueue(None, vec![], 10).unwrap();
@@ -106,7 +106,7 @@ fn test_job_failed() {
         Err("err".into())
     }
 
-    let queue = Queue::new("redis://localhost/", "test-failed").unwrap();
+    let queue = Queue::new("redis://localhost/", "test-failed", 10).unwrap();
     queue.drop().unwrap();
 
     let uuid = queue.enqueue(None, vec![], 10).unwrap();
@@ -123,13 +123,10 @@ fn test_job_failed() {
         .unwrap();
 
     let status = queue.status(&uuid).unwrap();
-    assert_eq!(
-        status,
-        Status::FAILED {
-            message: "err".to_string(),
-            backtrace: "Error: err\n".to_string(),
-        }
-    );
+    match status {
+        Status::FAILED { message, .. } => assert_eq!(message, "err"),
+        _ => panic!("Wrong type"),
+    };
 }
 
 #[test]
@@ -139,7 +136,7 @@ fn test_job_lost() {
         Ok(Some("ok".to_string()))
     }
 
-    let queue = Queue::new("redis://localhost/", "test-lost").unwrap();
+    let queue = Queue::new("redis://localhost/", "test-lost", 10).unwrap();
     queue.drop().unwrap();
 
     let uuid = queue.enqueue(None, vec![], 10).unwrap();

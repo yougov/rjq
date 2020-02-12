@@ -21,7 +21,7 @@ use std::thread::sleep;
 use rjq::Queue;
 
 fn main() {
-    let queue = Queue::new("redis://localhost/", "rjq");
+    let queue = Queue::new("redis://localhost/", "rjq", 10);
     let mut uuids = Vec::new();
 
     for _ in 0..10 {
@@ -57,7 +57,7 @@ fn main() {
         Ok(format!("hi from {}", uuid))
     }
 
-    let queue = Queue::new("redis://localhost/", "rjq");
+    let queue = Queue::new("redis://localhost/", "rjq", 10);
     queue.work(process, Some(1), Some(5), Some(10), Some(30), Some(false), None).unwrap();
 }
 ```

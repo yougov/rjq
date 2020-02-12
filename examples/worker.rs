@@ -28,7 +28,7 @@ fn main() {
         Ok(Some(format!("hi from {}", uuid)))
     }
 
-    let queue: Queue = Queue::new("redis://localhost/", "rjq").unwrap();
+    let queue: Queue = Queue::new("redis://localhost/", "rjq", 10).unwrap();
     queue
         .work(process, None, Some(5), Some(10), None, Some(false), None)
         .unwrap();
