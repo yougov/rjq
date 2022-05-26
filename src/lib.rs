@@ -2,93 +2,112 @@
 //!
 //! # Enqueue jobs
 //!
-//! ```rust,ignore
+//! ```rust
 //! extern crate rjq;
 //!
 //! use std::time::Duration;
 //! use std::thread::sleep;
-//! use rjq::{Queue, Status};
 //!
-//! let queue = Queue::new("redis://localhost/", "rjq");
+//! let queue = rjq::Queue::new("redis://localhost/", "rjq");
 //! let mut uuids = Vec::new();
 //!
 //! for _ in 0..10 {
 //!     sleep(Duration::from_millis(100));
-//!     uuids.push(queue.enqueue(vec![], 30)?);
+//!     uuids.push(queue.enqueue(None, vec![], 30).unwrap());
 //! }
-//!
-//! sleep(Duration::from_millis(10000));
+//! sleep(Duration::from_millis(3000));
 //!
 //! for uuid in uuids.iter() {
-//!     let status = queue.status(uuid)?;
-//!     let result = queue.result(uuid)?.unwrap();
-//!     println!("{} {:?} {}", uuid, status, result);
+//!     let status = queue.status(uuid).unwrap();
+//!     let result = queue.result(uuid);
+//!     if let Ok(result) = result {
+//!         println!("{} {:?} {:?}", uuid, status, result);
+//!     } else {
+//!         println!("{:?}", result);
+//!     }
 //! }
 //! ```
 //!
 //! # Work on jobs
 //!
-//! ```rust,ignore
+//! ```rust
 //! extern crate rjq;
 //!
 //! use std::time::Duration;
 //! use std::thread::sleep;
-//! use std::error::Error;
-//! use rjq::Queue;
 //!
-//! fn process(uuid: String, _: Vec<String>) -> Result<String, Box<Error>> {
-//!     sleep(Duration::from_millis(1000));
-//!     println!("{}", uuid);
-//!     Ok(format!("hi from {}", uuid))
+//! #[derive(Debug, thiserror::Error)]
+//! #[non_exhaustive]
+//! pub enum Error {
+//!     #[error("{0}")]
+//!     Redis(#[from] redis::RedisError),
+//!     #[error("{0}")]
+//!     Serde(#[from] serde_json::Error),
+//!     #[error("{0}")]
+//!     Rjq(#[from] rjq::errors::Error),
 //! }
 //!
-//! let queue = Queue::new("redis://localhost/", "rjq");
-//! queue.work(process, None, Some(60), None, Some(30), Some(false), None)?;
+//! fn process(uuid: String, _: Vec<String>) -> rjq::JobResult<Error> {
+//!     sleep(Duration::from_millis(1000));
+//!     println!("{}", uuid);
+//!     Ok(Some(format!("hi from {}", uuid)))
+//! }
+//!
+//! let queue = rjq::Queue::new("redis://localhost/", "rjq");
+//! queue.work(process, Some(5), Some(10), Some(1), Some(30), Some(false), Some(false)).unwrap();
 //! ```
+#![feature(error_iter)]
 
-#![deny(missing_docs)]
-#[macro_use]
-extern crate error_chain;
 extern crate redis;
 extern crate serde;
-#[macro_use]
 extern crate serde_derive;
-#[macro_use]
 extern crate serde_json;
 extern crate uuid;
 
-use redis::{Client, Commands};
+use std::error::Error as StdError;
+use std::fmt::Write;
 use std::marker::{Send, Sync};
-use std::sync::mpsc::channel;
 use std::sync::Arc;
+use std::sync::mpsc::channel;
 use std::thread;
 use std::thread::sleep;
 use std::time::Duration;
+
+use redis::{Client, Commands};
+use serde_derive::{Deserialize, Serialize};
+use serde_json::json;
 use uuid::Uuid;
 
-pub mod errors {
-    #![allow(missing_docs)]
-    use redis;
-    use serde_json;
-    error_chain! {
-        errors {
-            JobFailed {
-                message: String,
-                backtrace: String,
-            }
-            JobQueued
-            JobLost
-            JobRunning
-        }
+pub use errors::Error;
 
-        foreign_links {
-            Redis(redis::RedisError);
-            Serde(serde_json::Error);
-        }
+pub mod errors {
+    use redis::RedisError;
+    use serde_json::Error as SerdeError;
+
+    /// Crate result.
+    pub type Result<T> = std::result::Result<T, Error>;
+
+    /// Crate error.
+    #[derive(Debug, thiserror::Error)]
+    #[non_exhaustive]
+    pub enum Error {
+        #[error("Job failed: '{message}', backtrace: {backtrace}")]
+        JobFailed {
+            message: String,
+            backtrace: String,
+        },
+        #[error("Job queued")]
+        JobQueued,
+        #[error("Job lost")]
+        JobLost,
+        #[error("Job running")]
+        JobRunning,
+        #[error("{0}")]
+        Redis(#[from] RedisError),
+        #[error("{0}")]
+        Serde(#[from] SerdeError),
     }
 }
-
-pub use errors::ErrorKind;
 
 /// Return type for the 'process' function; wraps
 /// an optional result String and an error type.
@@ -253,12 +272,11 @@ impl Queue {
         fall: Option<bool>,
         infinite: Option<bool>,
     ) -> Result<(), T>
-    where
-        T: std::convert::From<redis::RedisError>
+        where
+            T: std::convert::From<redis::RedisError>
             + std::convert::From<serde_json::Error>
             + std::convert::From<errors::Error>
-            + std::fmt::Display
-            + error_chain::ChainedError,
+            + StdError
     {
         let wait = wait.unwrap_or(10);
         let timeout = timeout.unwrap_or(30);
@@ -306,7 +324,7 @@ impl Queue {
                     Ok(o) => Status::FINISHED(o),
                     Err(err) => Status::FAILED {
                         message: err.to_string(),
-                        backtrace: err.display_chain().to_string(),
+                        backtrace: Self::display_chain(&err),
                     },
                 };
                 tx.send(r).unwrap_or(())
@@ -355,12 +373,31 @@ impl Queue {
 
         match job.status {
             Status::FINISHED(result) => Ok(result),
-            Status::QUEUED => Err(ErrorKind::JobQueued.into()),
-            Status::FAILED { message, backtrace } => {
-                Err(ErrorKind::JobFailed { message, backtrace }.into())
-            }
-            Status::LOST => Err(ErrorKind::JobLost.into()),
-            Status::RUNNING(_) => Err(ErrorKind::JobRunning.into()),
+            Status::QUEUED => Err(Error::JobQueued),
+            Status::FAILED { message, backtrace } => Err(Error::JobFailed { message, backtrace }),
+            Status::LOST => Err(Error::JobLost),
+            Status::RUNNING(_) => Err(Error::JobRunning),
         }
+    }
+
+    /// Build a full error chain string.
+    ///
+    /// The `write!()` macro should never return an error for a string,
+    /// however, handling it here in case things change in the future.
+    /// Using this macro to avoid clippy warnings on
+    /// `format!(..)` appended to existing `String`
+    /// help: consider using `write!` to avoid the extra allocation
+    /// help: for further information visit
+    /// https://rust-lang.github.io/rust-clippy/master/index.html#format_push_string
+    fn display_chain<T: StdError>(error: &T) -> String {
+        let mut chain = format!("Error: {}", error);
+        let mut current_source = error.source();
+        while let Some(ce) = current_source {
+            current_source = ce.source();
+            if let Err(e) = write!(chain, "\n{:?}", ce) {
+                return format!("Failed to build cause chain: {:?}", e);
+            }
+        }
+        chain
     }
 }
