@@ -3,8 +3,6 @@
 //! # Enqueue jobs
 //!
 //! ```rust
-//! extern crate rjq;
-//!
 //! use std::time::Duration;
 //! use std::thread::sleep;
 //!
@@ -31,8 +29,6 @@
 //! # Work on jobs
 //!
 //! ```rust
-//! extern crate rjq;
-//!
 //! use std::time::Duration;
 //! use std::thread::sleep;
 //!
