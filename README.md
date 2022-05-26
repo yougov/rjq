@@ -14,27 +14,25 @@ https://docs.rs/rjq/
 ## Enqueue jobs
 
 ```rust
-extern crate rjq;
-
 use std::time::Duration;
 use std::thread::sleep;
-use rjq::Queue;
 
-fn main() {
-    let queue = Queue::new("redis://localhost/", "rjq");
-    let mut uuids = Vec::new();
+let queue = rjq::Queue::new("redis://localhost/", "rjq");
+let mut uuids = Vec::new();
 
-    for _ in 0..10 {
-        sleep(Duration::from_millis(100));
-        uuids.push(queue.enqueue(vec![], 30).unwrap());
-    }
+for _ in 0..10 {
+    sleep(Duration::from_millis(100));
+    uuids.push(queue.enqueue(None, vec![], 30).unwrap());
+}
+sleep(Duration::from_millis(3000));
 
-    sleep(Duration::from_millis(10000));
-
-    for uuid in uuids.iter() {
-        let status = queue.status(uuid).unwrap();
-        let result = queue.result(uuid).unwrap().unwrap();
-        println!("{} {:?} {}", uuid, status, result);
+for uuid in uuids.iter() {
+    let status = queue.status(uuid).unwrap();
+    let result = queue.result(uuid);
+    if let Ok(result) = result {
+        println!("{} {:?} {:?}", uuid, status, result);
+    } else {
+        println!("{:?}", result);
     }
 }
 ```
@@ -42,24 +40,29 @@ fn main() {
 
 ## Queue worker
 
-```rust
-extern crate rjq;
-
+//! ```rust
 use std::time::Duration;
 use std::thread::sleep;
-use std::error::Error;
-use rjq::Queue;
 
-fn main() {
-    fn process(uuid: String, _: Vec<String>) -> Result<String, Box<Error>> {
-        sleep(Duration::from_millis(1000));
-        println!("{}", uuid);
-        Ok(format!("hi from {}", uuid))
-    }
-
-    let queue = Queue::new("redis://localhost/", "rjq");
-    queue.work(process, Some(1), Some(5), Some(10), Some(30), Some(false), None).unwrap();
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum Error {
+    #[error("{0}")]
+    Redis(#[from] redis::RedisError),
+    #[error("{0}")]
+    Serde(#[from] serde_json::Error),
+    #[error("{0}")]
+    Rjq(#[from] rjq::errors::Error),
 }
+
+fn process(uuid: String, _: Vec<String>) -> rjq::JobResult<Error> {
+    sleep(Duration::from_millis(1000));
+    println!("{}", uuid);
+    Ok(Some(format!("hi from {}", uuid)))
+}
+
+let queue = rjq::Queue::new("redis://localhost/", "rjq");
+queue.work(process, Some(5), Some(10), Some(1), Some(30), Some(false), Some(false)).unwrap();
 ```
 
 
