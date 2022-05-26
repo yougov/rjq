@@ -110,7 +110,7 @@ pub mod errors {
 pub type JobResult<T> = Result<Option<String>, T>;
 
 /// Job status
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Status {
     /// Job is queued
     QUEUED,
@@ -141,7 +141,7 @@ impl Job {
         Job {
             id: id.unwrap_or_else(|| Uuid::new_v4().to_string()),
             status: Status::QUEUED,
-            args: args,
+            args,
         }
     }
 }
@@ -178,7 +178,7 @@ impl Queue {
     pub fn drop(&self) -> errors::Result<()> {
         let conn = self.redis_connection()?;
 
-        let _: () = conn.del(format!("{}:ids", self.name))?;
+        conn.del(format!("{}:ids", self.name))?;
 
         Ok(())
     }
@@ -202,12 +202,12 @@ impl Queue {
 
         let job = Job::new(id, args);
 
-        let _: () = conn.set_ex(
+        conn.set_ex(
             format!("{}:{}", self.name, job.id),
             serde_json::to_string(&job)?,
             expire,
         )?;
-        let _: () = conn.rpush(format!("{}:ids", self.name), &job.id)?;
+        conn.rpush(format!("{}:ids", self.name), &job.id)?;
 
         Ok(job.id)
     }
@@ -234,7 +234,7 @@ impl Queue {
 
         let jobs: Vec<Job> = keys
             .iter()
-            .filter_map(|key| conn.get(format!("{}", key)).ok())
+            .filter_map(|key| conn.get(key.to_string() ).ok())
             .filter_map(|json: String| serde_json::from_str(&json).ok())
             .collect();
 
@@ -309,7 +309,7 @@ impl Queue {
             let mut job: Job = serde_json::from_str(&json)?;
 
             job.status = Status::RUNNING(None);
-            let _: () = conn.set_ex(&key, serde_json::to_string(&job)?, timeout + expire)?;
+            conn.set_ex(&key, serde_json::to_string(&job)?, timeout + expire)?;
 
             let (tx, rx) = channel();
             let cafun = afun.clone();
@@ -342,7 +342,7 @@ impl Queue {
             // Reconnect to Redis in case job ran for longer than
             // Redis connection timeout
             let conn = self.redis_connection()?;
-            let _: () = conn.set_ex(&key, serde_json::to_string(&job)?, expire)?;
+            conn.set_ex(&key, serde_json::to_string(&job)?, expire)?;
 
             if fall && job.status == Status::LOST {
                 panic!("LOST");
