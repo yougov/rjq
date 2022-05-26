@@ -74,7 +74,7 @@ use serde_derive::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
 
-pub use errors::Error;
+pub use crate::errors::Error;
 
 pub mod errors {
     use redis::RedisError;
