@@ -40,7 +40,7 @@ for uuid in uuids.iter() {
 
 ## Queue worker
 
-//! ```rust
+```rust
 use std::time::Duration;
 use std::thread::sleep;
 
