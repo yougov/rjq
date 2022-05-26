@@ -1,22 +1,24 @@
 #[cfg(test)]
-#[macro_use]
-extern crate error_chain;
 extern crate rjq;
 
-use rjq::{Queue, Status};
 use std::thread::sleep;
 use std::time::Duration;
 
+use rjq::{Queue, Status};
+
 mod errors {
-    extern crate redis;
-    extern crate serde_json;
     use rjq::errors::Error as RjqError;
-    error_chain! {
-        foreign_links {
-            Redis(redis::RedisError);
-            Serde(serde_json::Error);
-            Rjq(RjqError);
-        }
+    #[derive(Debug, thiserror::Error)]
+    #[non_exhaustive]
+    pub enum Error {
+        #[error("Failed")]
+        Failed,
+        #[error("{0}")]
+        Redis(#[from] redis::RedisError),
+        #[error("{0}")]
+        Serde(#[from] serde_json::Error),
+        #[error("{0}")]
+        Rjq(#[from] RjqError),
     }
 }
 
@@ -103,7 +105,7 @@ fn test_job_result() {
 fn test_job_failed() {
     fn fn_err(_: String, _: Vec<String>) -> JobResult {
         sleep(Duration::from_millis(200));
-        Err("err".into())
+        Err(errors::Error::Failed)
     }
 
     let queue = Queue::new("redis://localhost/", "test-failed", 10).unwrap();
@@ -123,10 +125,13 @@ fn test_job_failed() {
         .unwrap();
 
     let status = queue.status(&uuid).unwrap();
-    match status {
-        Status::FAILED { message, .. } => assert_eq!(message, "err"),
-        _ => panic!("Wrong type"),
-    };
+    assert_eq!(
+        status,
+        Status::FAILED {
+            message: "Failed".to_string(),
+            backtrace: "Error: Failed".to_string(),
+        }
+    );
 }
 
 #[test]

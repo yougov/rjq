@@ -1,21 +1,21 @@
-#[macro_use]
-extern crate error_chain;
 extern crate rjq;
 
-use rjq::Queue;
 use std::thread::sleep;
 use std::time::Duration;
 
+use rjq::Queue;
+
 mod errors {
-    extern crate redis;
-    extern crate serde_json;
     use rjq::errors::Error as RjqError;
-    error_chain! {
-        foreign_links {
-            Redis(redis::RedisError);
-            Serde(serde_json::Error);
-            Rjq(RjqError);
-        }
+    #[derive(Debug, thiserror::Error)]
+    #[non_exhaustive]
+    pub enum Error {
+        #[error("{0}")]
+        Redis(#[from] redis::RedisError),
+        #[error("{0}")]
+        Serde(#[from] serde_json::Error),
+        #[error("{0}")]
+        Rjq(#[from] RjqError),
     }
 }
 
