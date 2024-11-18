@@ -50,7 +50,7 @@
 //! }
 //!
 //! let queue = rjq::Queue::new("redis://localhost/", "rjq", 10).unwrap();
-//! queue.work(process, Some(5), Some(10), Some(1), Some(30), Some(false), Some(false)).unwrap();
+//! queue.work(process, Some(5.0), Some(10), Some(1), Some(30), Some(false), Some(false)).unwrap();
 //! ```
 
 #![allow(clippy::too_many_arguments)]
@@ -193,7 +193,7 @@ impl<'a> Queue<'a> {
         &self,
         id: Option<String>,
         args: Vec<String>,
-        expire: usize,
+        expire: u64,
     ) -> errors::Result<String> {
         let mut conn = self.redis_connection()?;
 
@@ -258,20 +258,20 @@ impl<'a> Queue<'a> {
     pub fn work<T, F: Fn(String, Vec<String>) -> JobResult<T> + Send + Sync + 'static>(
         &self,
         fun: F,
-        wait: Option<usize>,
-        timeout: Option<usize>,
-        freq: Option<usize>,
-        expire: Option<usize>,
+        wait: Option<f64>,
+        timeout: Option<u32>,
+        freq: Option<u32>,
+        expire: Option<u64>,
         fall: Option<bool>,
         infinite: Option<bool>,
     ) -> Result<(), T>
         where
-            T: std::convert::From<redis::RedisError>
-            + std::convert::From<serde_json::Error>
-            + std::convert::From<errors::Error>
+            T: From<redis::RedisError>
+            + From<serde_json::Error>
+            + From<errors::Error>
             + StdError
     {
-        let wait = wait.unwrap_or(10);
+        let wait = wait.unwrap_or(10.0);
         let timeout = timeout.unwrap_or(30);
         let freq = freq.unwrap_or(1);
         let expire = expire.unwrap_or(30);
@@ -319,7 +319,7 @@ impl<'a> Queue<'a> {
             // After the job has finished, we should set the expiry time to
             // `expiry` seconds so clients can check the results.
             let running_expiry = 10 * freq;
-            conn.set_ex(&key, serde_json::to_string(&job)?, running_expiry)?;
+            conn.set_ex(&key, serde_json::to_string(&job)?, u64::from(running_expiry))?;
 
             let (tx, rx) = channel();
             let cafun = afun.clone();
@@ -344,7 +344,7 @@ impl<'a> Queue<'a> {
                 job.status = status;
                 match job.status {
                     Status::RUNNING(_) => {
-                        conn.expire(&key, running_expiry)
+                        conn.expire(&key, i64::from(running_expiry))
                             .unwrap_or_else(|e| println!("Could not update expiry time: {}", e));
                     }
                     _ => break,

@@ -108,7 +108,7 @@ fn drop(&self) -> Result<(), Box<Error>>;
 ### Enqueue job
 
 ```rust
-fn enqueue(&self, args: Vec<String>, expire: usize) -> Result<String, Box<Error>>;
+fn enqueue(&self, args: Vec<String>, expire: u64) -> Result<String, Box<Error>>;
 ```
 
 **args** - job arguments
