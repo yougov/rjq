@@ -16,9 +16,10 @@ description = """Redis job queue"""
 travis-ci = { repository = "embali/rjq" }
 
 [dependencies]
-redis = "0.10.0"
-uuid = { version = "0.8.0", features = ["v4"] }
-serde = "1.0.80"
-serde_json = "1.0.33"
-serde_derive = "1.0.80"
-thiserror = "1.0.31"
+r2d2 = "~0.8"
+redis = { version = "~0.27.5", features = [ "r2d2" ] }
+uuid = { version = "~1.9.1", features = ["v4"] }
+serde = "~1.0"
+serde_json = "~1.0"
+serde_derive = "~1.0"
+thiserror = "~1.0"

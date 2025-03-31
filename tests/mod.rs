@@ -8,7 +8,6 @@ use rjq::{Queue, Status};
 
 mod errors {
     use rjq::errors::Error as RjqError;
-
     #[derive(Debug, thiserror::Error)]
     #[non_exhaustive]
     pub enum Error {
@@ -27,19 +26,19 @@ type JobResult = rjq::JobResult<errors::Error>;
 
 #[test]
 fn test_job_queued() {
-    let queue = Queue::new("redis://localhost/", "test-queued");
+    let queue = Queue::new("redis://localhost/", "test-queued", 10).unwrap();
     queue.drop().unwrap();
 
     let uuid = queue.enqueue(None, vec![], 5).unwrap();
 
     let status = queue.status(&uuid).unwrap();
-    assert!(status == Status::QUEUED);
+    assert_eq!(status, Status::QUEUED);
 }
 
 #[test]
 #[should_panic]
 fn test_job_expired() {
-    let queue = Queue::new("redis://localhost/", "test-expired");
+    let queue = Queue::new("redis://localhost/", "test-expired", 10).unwrap();
     queue.drop().unwrap();
 
     let uuid = queue.enqueue(None, vec![], 1).unwrap();
@@ -55,23 +54,24 @@ fn test_job_finished() {
         Ok(Some("ok".to_string()))
     }
 
-    let queue = Queue::new("redis://localhost/", "test-finished");
+    let queue = Queue::new("redis://localhost/", "test-finished", 10).unwrap();
     queue.drop().unwrap();
 
     let uuid = queue.enqueue(None, vec![], 10).unwrap();
     queue
         .work(
             fn_ok,
-            Some(1),
+            Some(1.0),
             Some(5),
             Some(1),
             Some(5),
             Some(false),
             Some(false),
-        ).unwrap();
+        )
+        .unwrap();
 
     let status = queue.status(&uuid).unwrap();
-    assert!(status == Status::FINISHED(Some("ok".to_string())));
+    assert_eq!(status, Status::FINISHED(Some("ok".to_string())));
 }
 
 #[test]
@@ -81,23 +81,24 @@ fn test_job_result() {
         Ok(Some("ok".to_string()))
     }
 
-    let queue = Queue::new("redis://localhost/", "test-result");
+    let queue = Queue::new("redis://localhost/", "test-result", 10).unwrap();
     queue.drop().unwrap();
 
     let uuid = queue.enqueue(None, vec![], 10).unwrap();
     queue
         .work(
             fn_ok,
-            Some(1),
+            Some(1.0),
             Some(5),
             Some(1),
             Some(5),
             Some(false),
             Some(false),
-        ).unwrap();
+        )
+        .unwrap();
 
     let res = queue.result(&uuid).unwrap();
-    assert!(res == Some("ok".to_string()));
+    assert_eq!(res, Some("ok".to_string()));
 }
 
 #[test]
@@ -107,20 +108,21 @@ fn test_job_failed() {
         Err(errors::Error::Failed)
     }
 
-    let queue = Queue::new("redis://localhost/", "test-failed");
+    let queue = Queue::new("redis://localhost/", "test-failed", 10).unwrap();
     queue.drop().unwrap();
 
     let uuid = queue.enqueue(None, vec![], 10).unwrap();
     queue
         .work(
             fn_err,
-            Some(1),
+            Some(1.0),
             Some(5),
             Some(1),
             Some(5),
             Some(false),
             Some(false),
-        ).unwrap();
+        )
+        .unwrap();
 
     let status = queue.status(&uuid).unwrap();
     assert_eq!(
@@ -139,21 +141,22 @@ fn test_job_lost() {
         Ok(Some("ok".to_string()))
     }
 
-    let queue = Queue::new("redis://localhost/", "test-lost");
+    let queue = Queue::new("redis://localhost/", "test-lost", 10).unwrap();
     queue.drop().unwrap();
 
     let uuid = queue.enqueue(None, vec![], 10).unwrap();
     queue
         .work(
             fn_ok,
-            Some(1),
+            Some(1.0),
             Some(5),
             Some(1),
             Some(5),
             Some(false),
             Some(false),
-        ).unwrap();
+        )
+        .unwrap();
 
     let status = queue.status(&uuid).unwrap();
-    assert!(status == Status::LOST);
+    assert_eq!(status, Status::LOST);
 }

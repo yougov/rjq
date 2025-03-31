@@ -7,7 +7,6 @@ use rjq::Queue;
 
 mod errors {
     use rjq::errors::Error as RjqError;
-
     #[derive(Debug, thiserror::Error)]
     #[non_exhaustive]
     pub enum Error {
@@ -29,7 +28,7 @@ fn main() {
         Ok(Some(format!("hi from {}", uuid)))
     }
 
-    let queue = Queue::new("redis://localhost/", "rjq");
+    let queue: Queue = Queue::new("redis://localhost/", "rjq", 10).unwrap();
     queue
         .work(process, None, Some(5), Some(10), None, Some(false), None)
         .unwrap();

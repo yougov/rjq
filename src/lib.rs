@@ -6,7 +6,7 @@
 //! use std::time::Duration;
 //! use std::thread::sleep;
 //!
-//! let queue = rjq::Queue::new("redis://localhost/", "rjq");
+//! let queue = rjq::Queue::new("redis://localhost/", "rjq", 10).unwrap();
 //! let mut uuids = Vec::new();
 //!
 //! for _ in 0..10 {
@@ -49,16 +49,11 @@
 //!     Ok(Some(format!("hi from {}", uuid)))
 //! }
 //!
-//! let queue = rjq::Queue::new("redis://localhost/", "rjq");
-//! queue.work(process, Some(5), Some(10), Some(1), Some(30), Some(false), Some(false)).unwrap();
+//! let queue = rjq::Queue::new("redis://localhost/", "rjq", 10).unwrap();
+//! queue.work(process, Some(5.0), Some(10), Some(1), Some(30), Some(false), Some(false)).unwrap();
 //! ```
-#![feature(error_iter)]
 
-extern crate redis;
-extern crate serde;
-extern crate serde_derive;
-extern crate serde_json;
-extern crate uuid;
+#![allow(clippy::too_many_arguments)]
 
 use std::error::Error as StdError;
 use std::fmt::Write;
@@ -79,6 +74,7 @@ pub use crate::errors::Error;
 pub mod errors {
     use redis::RedisError;
     use serde_json::Error as SerdeError;
+    use r2d2::Error as R2d2Error;
 
     /// Crate result.
     pub type Result<T> = std::result::Result<T, Error>;
@@ -98,6 +94,8 @@ pub mod errors {
         JobLost,
         #[error("Job running")]
         JobRunning,
+        #[error("{0}")]
+        R2d2(#[from] R2d2Error),
         #[error("{0}")]
         Redis(#[from] RedisError),
         #[error("{0}")]
@@ -146,20 +144,21 @@ impl Job {
     }
 }
 
+type RedisPool = r2d2::Pool<Client>;
+type RedisConn = r2d2::PooledConnection<Client>;
+
 /// Queue
-pub struct Queue {
+pub struct Queue<'a> {
     /// Redis url
-    url: String,
+    pool: RedisPool,
     /// Queue name
-    name: String,
+    name: &'a str,
 }
 
-impl Queue {
+impl<'a> Queue<'a> {
     /// Return a Redis connection for this Queue
-    fn redis_connection(&self) -> errors::Result<redis::Connection> {
-        let client = redis::Client::open(self.url.as_str())?;
-        let conn = client.get_connection()?;
-        Ok(conn)
+    fn redis_connection(&self) -> errors::Result<RedisConn> {
+        Ok(self.pool.get()?)
     }
 
     /// Init new queue object
@@ -167,16 +166,15 @@ impl Queue {
     /// `url` - redis url to connect
     ///
     /// `name` - queue name
-    pub fn new(url: &str, name: &str) -> Queue {
-        Queue {
-            url: url.to_string(),
-            name: name.to_string(),
-        }
+    pub fn new(url: &str, name: &'a str, pool_size: u32) -> errors::Result<Queue<'a>> {
+        let client = redis::Client::open(url)?;
+        let pool = r2d2::Builder::new().max_size(pool_size).build(client)?;
+        Ok(Queue { pool, name })
     }
 
     /// Delete enqueued jobs
     pub fn drop(&self) -> errors::Result<()> {
-        let conn = self.redis_connection()?;
+        let mut conn = self.redis_connection()?;
 
         conn.del(format!("{}:ids", self.name))?;
 
@@ -195,10 +193,9 @@ impl Queue {
         &self,
         id: Option<String>,
         args: Vec<String>,
-        expire: usize,
+        expire: u64,
     ) -> errors::Result<String> {
-        let client = Client::open(self.url.as_str())?;
-        let conn = client.get_connection()?;
+        let mut conn = self.redis_connection()?;
 
         let job = Job::new(id, args);
 
@@ -218,7 +215,7 @@ impl Queue {
     ///
     /// Returns job status
     pub fn status(&self, id: &str) -> errors::Result<Status> {
-        let conn = self.redis_connection()?;
+        let mut conn = self.redis_connection()?;
         let json: String = conn.get(format!("{}:{}", self.name, id))?;
         let job: Job = serde_json::from_str(&json)?;
 
@@ -229,12 +226,12 @@ impl Queue {
     ///
     /// Returns list of jobs in JSON format
     pub fn get_jobs_json(&self) -> errors::Result<serde_json::Value> {
-        let conn = self.redis_connection()?;
+        let mut conn = self.redis_connection()?;
         let keys: Vec<String> = conn.keys(format!("{}:*", self.name))?;
 
         let jobs: Vec<Job> = keys
             .iter()
-            .filter_map(|key| conn.get(key.to_string() ).ok())
+            .filter_map(|key| conn.get(key.to_string()).ok())
             .filter_map(|json: String| serde_json::from_str(&json).ok())
             .collect();
 
@@ -261,27 +258,27 @@ impl Queue {
     pub fn work<T, F: Fn(String, Vec<String>) -> JobResult<T> + Send + Sync + 'static>(
         &self,
         fun: F,
-        wait: Option<usize>,
-        timeout: Option<usize>,
-        freq: Option<usize>,
-        expire: Option<usize>,
+        wait: Option<f64>,
+        timeout: Option<u32>,
+        freq: Option<u32>,
+        expire: Option<u64>,
         fall: Option<bool>,
         infinite: Option<bool>,
     ) -> Result<(), T>
         where
-            T: std::convert::From<redis::RedisError>
-            + std::convert::From<serde_json::Error>
-            + std::convert::From<errors::Error>
+            T: From<redis::RedisError>
+            + From<serde_json::Error>
+            + From<errors::Error>
             + StdError
     {
-        let wait = wait.unwrap_or(10);
+        let wait = wait.unwrap_or(10.0);
         let timeout = timeout.unwrap_or(30);
         let freq = freq.unwrap_or(1);
         let expire = expire.unwrap_or(30);
         let fall = fall.unwrap_or(true);
         let infinite = infinite.unwrap_or(true);
 
-        let conn = self.redis_connection()?;
+        let mut conn = self.redis_connection()?;
 
         let afun = Arc::new(fun);
         let ids_key = format!("{}:ids", self.name);
@@ -309,12 +306,27 @@ impl Queue {
             let mut job: Job = serde_json::from_str(&json)?;
 
             job.status = Status::RUNNING(None);
-            conn.set_ex(&key, serde_json::to_string(&job)?, timeout + expire)?;
+            // Update job in Redis.
+            // The job should fail if:
+            //   - the timeout is reached
+            //   - the worker function fails
+            //   - the worker dies unexpectedly (e.g. a panic or host failure)
+            // We expire the key in `10 * freq` seconds, and expect the
+            // worker to update that expiry time every `freq` seconds
+            // while the job is still running, until `timeout` has expired
+            // (`10 * freq` is an arbitrary choice made to allow for network
+            // failures etc).
+            // After the job has finished, we should set the expiry time to
+            // `expiry` seconds so clients can check the results.
+            let running_expiry = 10 * freq;
+            conn.set_ex(&key, serde_json::to_string(&job)?, u64::from(running_expiry))?;
 
             let (tx, rx) = channel();
             let cafun = afun.clone();
             let cid = id.clone();
             let cargs = job.args.clone();
+            // Run the function in a different thread. When it completes (or fails),
+            // send the result back through the transmitter.
             thread::spawn(move || {
                 let r = match cafun(cid, cargs) {
                     Ok(o) => Status::FINISHED(o),
@@ -326,11 +338,15 @@ impl Queue {
                 tx.send(r).unwrap_or(())
             });
 
+            // Poll for job completion.
             for _ in 0..(timeout * freq) {
                 let status = rx.try_recv().unwrap_or(Status::RUNNING(None));
                 job.status = status;
                 match job.status {
-                    Status::RUNNING(_) => {}
+                    Status::RUNNING(_) => {
+                        conn.expire(&key, i64::from(running_expiry))
+                            .unwrap_or_else(|e| println!("Could not update expiry time: {}", e));
+                    }
                     _ => break,
                 }
                 sleep(Duration::from_millis(1000 / freq as u64));
@@ -339,9 +355,6 @@ impl Queue {
                 job.status = Status::LOST
             }
 
-            // Reconnect to Redis in case job ran for longer than
-            // Redis connection timeout
-            let conn = self.redis_connection()?;
             conn.set_ex(&key, serde_json::to_string(&job)?, expire)?;
 
             if fall && job.status == Status::LOST {
@@ -362,7 +375,7 @@ impl Queue {
     ///
     /// Returns job result
     pub fn result(&self, id: &str) -> errors::Result<Option<String>> {
-        let conn = self.redis_connection()?;
+        let mut conn = self.redis_connection()?;
 
         let json: String = conn.get(format!("{}:{}", self.name, id))?;
         let job: Job = serde_json::from_str(&json)?;
